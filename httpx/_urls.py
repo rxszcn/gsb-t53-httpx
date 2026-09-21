@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, unquote, urlencode
 
 import idna
 
+from ._exceptions import InvalidURL
 from ._types import QueryParamTypes
 from ._urlparse import urlparse
 from ._utils import primitive_value_to_str
@@ -187,8 +188,15 @@ class URL:
         """
         host: str = self._uri_reference.host
 
-        if host.startswith("xn--"):
-            host = idna.decode(host)
+        if any(label.startswith("xn--") for label in host.split(".")):
+            # The host includes one or more A-labels that ought to decode
+            # into Unicode. An undecodable A-label is an invalid hostname,
+            # so surface `httpx.InvalidURL` rather than leaking the upstream
+            # `idna` exception type to callers.
+            try:
+                host = idna.decode(host)
+            except idna.IDNAError:
+                raise InvalidURL(f"Invalid IDNA hostname: {host!r}")
 
         return host
 
